@@ -2,7 +2,6 @@ import "./style.css";
 import { loadRec2020PQProfile } from "./iccProfile.ts";
 import { injectIccProfile } from "./jpegInject.ts";
 import { inspectJpeg } from "./inspect.ts";
-import { encodeImageDataToPQ } from "./encode.ts";
 import { encodeJpeg, type JpegFlavor } from "./jpegEncode.ts";
 
 const MAX_DIM = 1400;
@@ -93,16 +92,17 @@ function redraw(): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.clearRect(0, 0, p.dw, p.dh);
-  // Preview is plain SDR. The glow slider only affects the encoded export —
-  // we can't render PQ-encoded values on an SDR canvas without misleading
-  // the user about what'll happen on a real HDR display.
+  // Brightness scales the pixel values before export. Under the assigned PQ
+  // profile those raised values are read as higher absolute luminance, which
+  // is what drives glow intensity. The preview shows the same scaling so it
+  // tracks the export (though glow itself only appears on an HDR display).
+  ctx.filter = `brightness(${glow.value})`;
   ctx.drawImage(current.img, p.sx, p.sy, p.sw, p.sh, 0, 0, p.dw, p.dh);
   updateSizeReadout();
 }
 
-function sliderToNits(): number {
-  // Slider 1.0..6.0 → 100..600 nits "diffuse white" target.
-  return Math.round(parseFloat(glow.value) * 100);
+function sliderBrightness(): number {
+  return parseFloat(glow.value);
 }
 
 function loadFile(file: File): void {
@@ -137,17 +137,19 @@ async function exportGlow(): Promise<void> {
     const { img } = current;
     const p = planDraw(img);
 
-    // Draw the source onto an offscreen canvas, then transform every pixel:
-    //   sRGB → linear → Rec.2020 → scale to nits → PQ encode.
-    // The output canvas pixels now mean what the Rec.2020 PQ tag claims.
+    // Draw the source onto an offscreen canvas with the brightness scaling
+    // baked in. We DON'T convert the pixels — the JPEG keeps its sRGB-encoded
+    // values and we simply ASSIGN the Rec.2020 PQ profile, so HDR-aware OSes
+    // reinterpret those values on the PQ curve. This matches how the known-good
+    // reference avatars are built.
     const off = document.createElement("canvas");
     off.width = p.dw;
     off.height = p.dh;
     const offCtx = off.getContext("2d", { willReadFrequently: true });
     if (!offCtx) throw new Error("No 2D context for offscreen canvas");
+    offCtx.filter = `brightness(${sliderBrightness()})`;
     offCtx.drawImage(img, p.sx, p.sy, p.sw, p.sh, 0, 0, p.dw, p.dh);
     const imageData = offCtx.getImageData(0, 0, p.dw, p.dh);
-    encodeImageDataToPQ(imageData.data, { whiteNits: sliderToNits() });
 
     // Encode with mozjpeg so we control baseline vs progressive (SOF0/SOF2).
     // canvas.toBlob can only ever produce baseline.
@@ -217,7 +219,8 @@ fileInput.addEventListener("change", () => {
 });
 
 glow.addEventListener("input", () => {
-  glowOut.textContent = `${sliderToNits()} nits`;
+  glowOut.textContent = `${sliderBrightness().toFixed(2)}×`;
+  redraw();
 });
 
 sizeSel.addEventListener("change", redraw);
@@ -235,8 +238,8 @@ resetBtn.addEventListener("click", () => {
   workspace.hidden = true;
   drop.classList.remove("compact");
   fileInput.value = "";
-  glow.value = "2.0";
-  glowOut.textContent = "200 nits";
+  glow.value = "1.0";
+  glowOut.textContent = "1.00×";
   sizeSel.value = "400";
   squareChk.checked = false;
   sizeOut.textContent = "—";

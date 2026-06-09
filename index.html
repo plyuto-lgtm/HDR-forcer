@@ -32,8 +32,8 @@
         <div class="preview-wrap">
           <canvas id="canvas"></canvas>
           <p class="preview-caption">
-            Preview is SDR — actual glow shows on an HDR display (iPhone, XDR
-            Mac). 100 nits ≈ SDR-equivalent, anything higher is HDR headroom.
+            Preview is SDR — glow only appears on an HDR display (iPhone, XDR
+            Mac). Higher brightness pushes more pixels into glow.
           </p>
         </div>
 
@@ -43,12 +43,12 @@
             <input
               type="range"
               id="glow"
-              min="1.0"
-              max="6.0"
-              step="0.1"
-              value="2.0"
+              min="0.5"
+              max="1.6"
+              step="0.01"
+              value="1.0"
             />
-            <output id="glowOut">200 nits</output>
+            <output id="glowOut">1.00×</output>
           </div>
 
           <div class="select-row">
@@ -97,10 +97,10 @@
 
       <footer class="foot">
         <p>
-          Files are processed locally — nothing is uploaded. Pixels are
-          re-encoded sRGB → linear → Rec.2020 → PQ, with SDR "white" landing at
-          the chosen nits. The JPEG is tagged Rec.2020 + PQ, so HDR-aware OSes
-          read bright pixels as absolute luminance above SDR.
+          Files are processed locally — nothing is uploaded. The pixel values
+          are kept as-is and the JPEG is tagged with a Rec.2020 + PQ profile (an
+          <em>assign</em>, not a conversion), so HDR-aware OSes reinterpret
+          bright pixels as absolute luminance and they glow.
         </p>
       </footer>
     </main>

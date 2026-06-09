@@ -10,21 +10,16 @@ read its bright pixels as absolute luminance — they render brighter than
 surrounding SDR UI and appear to glow. On non-HDR displays the image renders
 as ordinary SDR.
 
-The original plan was a pure **assign** (keep pixel values, only change the
-tag). That actually burns colors: sRGB primaries reinterpreted as Rec.2020 are
-oversaturated, and sRGB-gamma values reinterpreted as PQ blow out midtones.
-Skin reads red, whites tint, contrast jumps.
+The effect is a pure **assign**, not a convert: the JPEG keeps its
+sRGB-encoded pixel values and we simply tag it with the Rec.2020 + PQ profile.
+HDR-aware OSes then reinterpret those values on the PQ curve, reading bright
+pixels as high absolute luminance — so they glow. This is how the known-good
+reference avatars (the cosmos profile) are built, and the bundled profile's
+`A2B0` LUT defines exactly how the values map.
 
-So instead we **convert** the pixels before tagging:
-
-1. `sRGB EOTF` → linear-light sRGB
-2. 3×3 matrix → linear-light Rec.2020 (gamut fix)
-3. scale to `whiteNits / 10000` (slider — where SDR diffuse white lands)
-4. `PQ OETF` → PQ code value, written back to the canvas
-
-The CICP tag now *honestly describes* what's in the pixels, so HDR-aware OSes
-tone-map cleanly. Highlights still glow because we land "white" above 100 nits
-(default 200) and bright pixels get the rest of the PQ headroom.
+The **Glow** slider is a brightness multiplier (0.5×–1.6×) applied to the
+pixels before export. Raising it pushes more pixels into the bright end, which
+the PQ curve reads as more luminance — stronger glow. Pure black stays black.
 
 The output JPEG embeds an ICC profile whose `cicp` tag carries:
 
@@ -92,7 +87,6 @@ expected CICP codepoints. Used as a build gate.
 ```
 public/rec2020_pq.icc canonical "Rec2020 Gamut with PQ Transfer" profile (9KB)
 src/iccProfile.ts   loads the canonical profile as a static asset
-src/encode.ts       per-pixel sRGB → linear → Rec.2020 → PQ encode
 src/jpegEncode.ts   mozjpeg (WASM) encode — baseline (SOF0) or progressive (SOF2)
 src/jpegInject.ts   strip the encoder's sRGB ICC, splice in our Rec.2020 PQ one
 src/inspect.ts      parse APP2 + ICC back out, read CICP + SOF — the build gate
