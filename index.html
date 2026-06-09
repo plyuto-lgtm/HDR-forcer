@@ -38,8 +38,19 @@
         </div>
 
         <div class="controls">
+          <div class="select-row">
+            <label for="mode">Mode</label>
+            <select id="mode">
+              <option value="assign" selected>
+                Assign — keep pixels, tag only
+              </option>
+              <option value="convert">Convert — sRGB → Rec.2020 PQ</option>
+            </select>
+            <output id="modeOut">assign</output>
+          </div>
+
           <div class="slider-row">
-            <label for="glow">Glow</label>
+            <label for="glow" id="glowLabel">Glow</label>
             <input
               type="range"
               id="glow"
@@ -97,10 +108,12 @@
 
       <footer class="foot">
         <p>
-          Files are processed locally — nothing is uploaded. The pixel values
-          are kept as-is and the JPEG is tagged with a Rec.2020 + PQ profile (an
-          <em>assign</em>, not a conversion), so HDR-aware OSes reinterpret
-          bright pixels as absolute luminance and they glow.
+          Files are processed locally — nothing is uploaded. The JPEG is tagged
+          with a Rec.2020 + PQ profile so HDR-aware OSes read bright pixels as
+          absolute luminance and they glow. <strong>Assign</strong> keeps the
+          original pixel values (max glow, can shift color);
+          <strong>Convert</strong> remaps sRGB → Rec.2020 PQ first (clean color,
+          gentler glow).
         </p>
       </footer>
     </main>

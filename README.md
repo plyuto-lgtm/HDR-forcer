@@ -11,15 +11,26 @@ surrounding SDR UI and appear to glow. On non-HDR displays the image renders
 as ordinary SDR.
 
 The effect is a pure **assign**, not a convert: the JPEG keeps its
-sRGB-encoded pixel values and we simply tag it with the Rec.2020 + PQ profile.
-HDR-aware OSes then reinterpret those values on the PQ curve, reading bright
-pixels as high absolute luminance — so they glow. This is how the known-good
-reference avatars (the cosmos profile) are built, and the bundled profile's
-`A2B0` LUT defines exactly how the values map.
+sRGB-encoded pixel values and tag it with the Rec.2020 + PQ profile. HDR-aware
+OSes then reinterpret those values on the PQ curve, reading bright pixels as
+high absolute luminance — so they glow.
 
-The **Glow** slider is a brightness multiplier (0.5×–1.6×) applied to the
-pixels before export. Raising it pushes more pixels into the bright end, which
-the PQ curve reads as more luminance — stronger glow. Pure black stays black.
+There are two **modes** (toggle in the UI):
+
+- **Assign** (default) — keep the original pixel values, only change the tag.
+  This is how the known-good reference avatars (the cosmos profile) are built;
+  the bundled profile's `A2B0` LUT defines how the values map. Strongest glow,
+  but reinterpreting sRGB primaries as Rec.2020 can shift color. The **Glow**
+  slider here is a brightness multiplier (0.5×–1.6×) baked in before export —
+  raising it pushes more pixels into the bright end. Pure black stays black.
+
+- **Convert** — properly remap each pixel sRGB → linear → Rec.2020 → PQ before
+  tagging, so the values honestly match the profile (no color burn). The
+  **White** slider picks where SDR diffuse white lands in nits (100–600,
+  default 200); highlights above that get the PQ headroom and glow.
+
+Use Assign for maximum glow that matches the reference; use Convert if the
+Assign output looks oversaturated or color-shifted on your display.
 
 The output JPEG embeds an ICC profile whose `cicp` tag carries:
 
@@ -35,13 +46,14 @@ sRGB ICC profile in an APP2 segment — the browser will not let you set a
 different output color space. So the pipeline is:
 
 1. Draw the image to an offscreen `<canvas>` at the selected output size (with
-   optional center square-crop).
-2. Walk every pixel through the sRGB → Rec.2020 → PQ conversion above.
-3. Encode the pixels to JPEG with **mozjpeg (WASM)** — not `canvas.toBlob` —
+   optional center square-crop). In Assign mode the brightness multiplier is
+   baked in here; in Convert mode every pixel is then remapped
+   sRGB → Rec.2020 → PQ.
+2. Encode the pixels to JPEG with **mozjpeg (WASM)** — not `canvas.toBlob` —
    so we control baseline (SOF0) vs progressive (SOF2). See below.
-4. **Strip any sRGB APP2 ICC_PROFILE segment**, then splice in our own APP2
+3. **Strip any sRGB APP2 ICC_PROFILE segment**, then splice in our own APP2
    segment carrying the Rec.2020 + PQ ICC profile.
-5. Wrap the new bytes in a `Blob('image/jpeg')` and download.
+4. Wrap the new bytes in a `Blob('image/jpeg')` and download.
 
 The new APP2 segment is inserted right after the JFIF APP0 segment (or
 directly after SOI if no APP0 is present). Stripping any existing profile
@@ -87,6 +99,7 @@ expected CICP codepoints. Used as a build gate.
 ```
 public/rec2020_pq.icc canonical "Rec2020 Gamut with PQ Transfer" profile (9KB)
 src/iccProfile.ts   loads the canonical profile as a static asset
+src/encode.ts       Convert mode: per-pixel sRGB → linear → Rec.2020 → PQ
 src/jpegEncode.ts   mozjpeg (WASM) encode — baseline (SOF0) or progressive (SOF2)
 src/jpegInject.ts   strip the encoder's sRGB ICC, splice in our Rec.2020 PQ one
 src/inspect.ts      parse APP2 + ICC back out, read CICP + SOF — the build gate

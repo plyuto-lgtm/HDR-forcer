@@ -3,6 +3,7 @@ import { loadRec2020PQProfile } from "./iccProfile.ts";
 import { injectIccProfile } from "./jpegInject.ts";
 import { inspectJpeg } from "./inspect.ts";
 import { encodeJpeg, type JpegFlavor } from "./jpegEncode.ts";
+import { encodeImageDataToPQ } from "./encode.ts";
 
 const MAX_DIM = 1400;
 
@@ -14,6 +15,9 @@ const workspace = document.getElementById("workspace") as HTMLElement;
 const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const glow = document.getElementById("glow") as HTMLInputElement;
 const glowOut = document.getElementById("glowOut") as HTMLOutputElement;
+const glowLabel = document.getElementById("glowLabel") as HTMLLabelElement;
+const modeSel = document.getElementById("mode") as HTMLSelectElement;
+const modeOut = document.getElementById("modeOut") as HTMLOutputElement;
 const downloadBtn = document.getElementById("downloadBtn") as HTMLButtonElement;
 const resetBtn = document.getElementById("resetBtn") as HTMLButtonElement;
 const inspectOut = document.getElementById("inspectOut") as HTMLPreElement;
@@ -92,17 +96,54 @@ function redraw(): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.clearRect(0, 0, p.dw, p.dh);
-  // Brightness scales the pixel values before export. Under the assigned PQ
-  // profile those raised values are read as higher absolute luminance, which
-  // is what drives glow intensity. The preview shows the same scaling so it
-  // tracks the export (though glow itself only appears on an HDR display).
-  ctx.filter = `brightness(${glow.value})`;
+  // In assign mode the slider scales pixel values (brightness) and the preview
+  // reflects that. In convert mode the slider is a target-nits value that only
+  // affects the encoded export, so we show the image unscaled.
+  ctx.filter = mode() === "assign" ? `brightness(${glow.value})` : "none";
   ctx.drawImage(current.img, p.sx, p.sy, p.sw, p.sh, 0, 0, p.dw, p.dh);
   updateSizeReadout();
 }
 
+type Mode = "assign" | "convert";
+
+function mode(): Mode {
+  return modeSel.value === "convert" ? "convert" : "assign";
+}
+
 function sliderBrightness(): number {
   return parseFloat(glow.value);
+}
+
+function sliderToNits(): number {
+  // Convert-mode slider 1.0..6.0 → 100..600 nits "diffuse white" target.
+  return Math.round(parseFloat(glow.value) * 100);
+}
+
+// Swap the Glow slider's range/label to match the active mode, then redraw.
+function applyMode(): void {
+  modeOut.textContent = mode();
+  if (mode() === "assign") {
+    glowLabel.textContent = "Glow";
+    glow.min = "0.5";
+    glow.max = "1.6";
+    glow.step = "0.01";
+    glow.value = "1.0";
+    glowOut.textContent = "1.00×";
+  } else {
+    glowLabel.textContent = "White";
+    glow.min = "1.0";
+    glow.max = "6.0";
+    glow.step = "0.1";
+    glow.value = "2.0";
+    glowOut.textContent = "200 nits";
+  }
+  redraw();
+}
+
+function glowReadout(): string {
+  return mode() === "assign"
+    ? `${sliderBrightness().toFixed(2)}×`
+    : `${sliderToNits()} nits`;
 }
 
 function loadFile(file: File): void {
@@ -137,19 +178,28 @@ async function exportGlow(): Promise<void> {
     const { img } = current;
     const p = planDraw(img);
 
-    // Draw the source onto an offscreen canvas with the brightness scaling
-    // baked in. We DON'T convert the pixels — the JPEG keeps its sRGB-encoded
-    // values and we simply ASSIGN the Rec.2020 PQ profile, so HDR-aware OSes
-    // reinterpret those values on the PQ curve. This matches how the known-good
-    // reference avatars are built.
     const off = document.createElement("canvas");
     off.width = p.dw;
     off.height = p.dh;
     const offCtx = off.getContext("2d", { willReadFrequently: true });
     if (!offCtx) throw new Error("No 2D context for offscreen canvas");
-    offCtx.filter = `brightness(${sliderBrightness()})`;
-    offCtx.drawImage(img, p.sx, p.sy, p.sw, p.sh, 0, 0, p.dw, p.dh);
+
+    if (mode() === "assign") {
+      // ASSIGN: keep the sRGB-encoded pixel values (brightness baked in) and
+      // just tag the Rec.2020 PQ profile. HDR-aware OSes reinterpret those
+      // values on the PQ curve. Matches how the reference avatars are built.
+      offCtx.filter = `brightness(${sliderBrightness()})`;
+      offCtx.drawImage(img, p.sx, p.sy, p.sw, p.sh, 0, 0, p.dw, p.dh);
+    } else {
+      // CONVERT: properly map sRGB → linear → Rec.2020 → PQ so the pixel
+      // values honestly match the tag (no color burn). Slider picks where SDR
+      // "white" lands in nits.
+      offCtx.drawImage(img, p.sx, p.sy, p.sw, p.sh, 0, 0, p.dw, p.dh);
+    }
     const imageData = offCtx.getImageData(0, 0, p.dw, p.dh);
+    if (mode() === "convert") {
+      encodeImageDataToPQ(imageData.data, { whiteNits: sliderToNits() });
+    }
 
     // Encode with mozjpeg so we control baseline vs progressive (SOF0/SOF2).
     // canvas.toBlob can only ever produce baseline.
@@ -219,10 +269,11 @@ fileInput.addEventListener("change", () => {
 });
 
 glow.addEventListener("input", () => {
-  glowOut.textContent = `${sliderBrightness().toFixed(2)}×`;
+  glowOut.textContent = glowReadout();
   redraw();
 });
 
+modeSel.addEventListener("change", applyMode);
 sizeSel.addEventListener("change", redraw);
 squareChk.addEventListener("change", redraw);
 formatSel.addEventListener("change", () => {
@@ -238,8 +289,8 @@ resetBtn.addEventListener("click", () => {
   workspace.hidden = true;
   drop.classList.remove("compact");
   fileInput.value = "";
-  glow.value = "1.0";
-  glowOut.textContent = "1.00×";
+  modeSel.value = "assign";
+  applyMode();
   sizeSel.value = "400";
   squareChk.checked = false;
   sizeOut.textContent = "—";
