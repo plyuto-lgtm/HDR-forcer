@@ -284,7 +284,7 @@ body {
   text-align: right;
 }
 
-#size {
+.select-row select {
   appearance: none;
   -webkit-appearance: none;
   background: #1f1f1f
@@ -300,13 +300,20 @@ body {
   width: 100%;
 }
 
-#size:hover {
+.select-row select:hover {
   border-color: #333;
 }
 
-#size:focus {
+.select-row select:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+/* Native option list — keep it readable on dark UIs (some OSes default to a
+   light popup that ignored our select styling). */
+.select-row select option {
+  background: #1f1f1f;
+  color: var(--text);
 }
 
 .checkbox-row label {
