@@ -1,9 +1,11 @@
 import "./style.css";
 import { loadRec2020PQProfile } from "./iccProfile.ts";
 import { injectIccProfile } from "./jpegInject.ts";
-import { inspectJpeg } from "./inspect.ts";
+import { inspectJpeg, inspectUltraHdr } from "./inspect.ts";
 import { encodeJpeg, type JpegFlavor } from "./jpegEncode.ts";
 import { encodeImageDataToPQ } from "./encode.ts";
+import { buildGainMap } from "./gainMap.ts";
+import { assembleUltraHdr } from "./ultraHdr.ts";
 
 const MAX_DIM = 1400;
 
@@ -104,10 +106,12 @@ function redraw(): void {
   updateSizeReadout();
 }
 
-type Mode = "assign" | "convert";
+type Mode = "assign" | "convert" | "gainmap";
 
 function mode(): Mode {
-  return modeSel.value === "convert" ? "convert" : "assign";
+  if (modeSel.value === "convert") return "convert";
+  if (modeSel.value === "gainmap") return "gainmap";
+  return "assign";
 }
 
 function sliderBrightness(): number {
@@ -119,6 +123,11 @@ function sliderToNits(): number {
   return Math.round(parseFloat(glow.value) * 100);
 }
 
+function sliderBoost(): number {
+  // Gain-map slider 2.0..8.0 → max highlight boost multiplier.
+  return parseFloat(glow.value);
+}
+
 // Swap the Glow slider's range/label to match the active mode, then redraw.
 function applyMode(): void {
   modeOut.textContent = mode();
@@ -128,22 +137,27 @@ function applyMode(): void {
     glow.max = "1.6";
     glow.step = "0.01";
     glow.value = "1.0";
-    glowOut.textContent = "1.00×";
-  } else {
+  } else if (mode() === "convert") {
     glowLabel.textContent = "White";
     glow.min = "1.0";
     glow.max = "6.0";
     glow.step = "0.1";
     glow.value = "2.0";
-    glowOut.textContent = "200 nits";
+  } else {
+    glowLabel.textContent = "Boost";
+    glow.min = "2.0";
+    glow.max = "8.0";
+    glow.step = "0.1";
+    glow.value = "4.0";
   }
+  glowOut.textContent = glowReadout();
   redraw();
 }
 
 function glowReadout(): string {
-  return mode() === "assign"
-    ? `${sliderBrightness().toFixed(2)}×`
-    : `${sliderToNits()} nits`;
+  if (mode() === "assign") return `${sliderBrightness().toFixed(2)}×`;
+  if (mode() === "convert") return `${sliderToNits()} nits`;
+  return `${sliderBoost().toFixed(1)}× boost`;
 }
 
 function loadFile(file: File): void {
@@ -191,19 +205,35 @@ async function exportGlow(): Promise<void> {
       offCtx.filter = `brightness(${sliderBrightness()})`;
       offCtx.drawImage(img, p.sx, p.sy, p.sw, p.sh, 0, 0, p.dw, p.dh);
     } else {
-      // CONVERT: properly map sRGB → linear → Rec.2020 → PQ so the pixel
-      // values honestly match the tag (no color burn). Slider picks where SDR
-      // "white" lands in nits.
+      // CONVERT and GAINMAP both start from the unscaled SDR image.
       offCtx.drawImage(img, p.sx, p.sy, p.sw, p.sh, 0, 0, p.dw, p.dh);
     }
     const imageData = offCtx.getImageData(0, 0, p.dw, p.dh);
+    const flavor = formatSel.value as JpegFlavor;
+
+    if (mode() === "gainmap") {
+      // GAIN MAP (UltraHDR): the SDR image is the base; we synthesize a
+      // grayscale gain map from its highlights and pack both into one file
+      // with MPF + hdrgm XMP. This is the format iOS Photos / Safari render.
+      const { gain, meta } = buildGainMap(imageData, {
+        boostMax: sliderBoost(),
+        loThreshold: 0.5,
+        hiThreshold: 1.0,
+      });
+      const baseJpeg = await encodeJpeg(imageData, 95, flavor);
+      const gainJpeg = await encodeJpeg(gain, 90, flavor);
+      const ultra = assembleUltraHdr(baseJpeg, gainJpeg, meta);
+      inspectOut.textContent = formatGainMapInspect(ultra, meta);
+      triggerDownload(ultra, `${current.name}_gainmap.jpg`);
+      return;
+    }
+
     if (mode() === "convert") {
       encodeImageDataToPQ(imageData.data, { whiteNits: sliderToNits() });
     }
 
     // Encode with mozjpeg so we control baseline vs progressive (SOF0/SOF2).
     // canvas.toBlob can only ever produce baseline.
-    const flavor = formatSel.value as JpegFlavor;
     const jpeg = await encodeJpeg(imageData, 95, flavor);
     const profile = await loadRec2020PQProfile();
     const tagged = injectIccProfile(jpeg, profile);
@@ -254,6 +284,24 @@ function formatInspect(r: ReturnType<typeof inspectJpeg>): string {
     `HDR-tagged: ${r.isHdrTagged ? "YES ✓" : "NO ✗"}`,
     `JPEG format: ${r.sof} (${sofMarker})`,
   ];
+  return lines.join("\n");
+}
+
+function formatGainMapInspect(
+  bytes: Uint8Array,
+  meta: { gainMapMax: number },
+): string {
+  const r = inspectUltraHdr(bytes);
+  const lines = [
+    `UltraHDR file: ${bytes.length} bytes`,
+    `Primary XMP hdrgm:Version: ${r.hasXmpVersion ? "YES ✓" : "NO ✗"}`,
+    `GContainer GainMap item: ${r.hasGainMapSemantic ? "YES ✓" : "NO ✗"}`,
+    `MPF images: ${r.mpfImageCount} (expect 2)`,
+    `Gain-map second image: ${r.secondImageIsJpeg ? `YES ✓ @${r.secondImageOffset}` : "NO ✗"}`,
+    `GainMapMax: ${(r.gainMapMax ?? meta.gainMapMax).toFixed(3)} (log2, = ${Math.pow(2, r.gainMapMax ?? meta.gainMapMax).toFixed(1)}× boost)`,
+    `Valid UltraHDR: ${r.isValid ? "YES ✓" : "NO ✗"}`,
+  ];
+  if (!r.isValid) lines.push("⚠ Gain-map structure invalid — this is a bug.");
   return lines.join("\n");
 }
 

@@ -15,24 +15,45 @@ sRGB-encoded pixel values and tag it with the Rec.2020 + PQ profile. HDR-aware
 OSes then reinterpret those values on the PQ curve, reading bright pixels as
 high absolute luminance — so they glow.
 
-There are two **modes** (toggle in the UI):
+## Two HDR mechanisms (important)
 
-- **Assign** (default) — keep the original pixel values, only change the tag.
-  This is how the known-good reference avatars (the cosmos profile) are built;
-  the bundled profile's `A2B0` LUT defines how the values map. Strongest glow,
-  but reinterpreting sRGB primaries as Rec.2020 can shift color. The **Glow**
-  slider here is a brightness multiplier (0.5×–1.6×) baked in before export —
-  raising it pushes more pixels into the bright end. Pure black stays black.
+There are two unrelated ways to make a still image glow, and they behave very
+differently across platforms and uploaders:
 
-- **Convert** — properly remap each pixel sRGB → linear → Rec.2020 → PQ before
-  tagging, so the values honestly match the profile (no color burn). The
-  **White** slider picks where SDR diffuse white lands in nits (100–600,
-  default 200); highlights above that get the PQ headroom and glow.
+1. **CICP / PQ tagging** — the pixels are read on the PQ curve and the file is
+   tagged Rec.2020 + PQ. **Chrome honors this** (even on 8-bit JPEG); **Apple's
+   still-image pipeline largely ignores bare PQ tags** because an 8-bit JPEG
+   can't be a compliant ≥10-bit ISO-HDR file. Survives LinkedIn's re-encode
+   (the brightness is in the pixels, so stripping the ICC doesn't remove it).
+2. **Gain map (UltraHDR / Adobe `hdrgm` / ISO 21496-1)** — an SDR base image
+   plus a grayscale "boost" image + metadata. **This is what iOS Photos and
+   Safari 26+ render.** But the gain map is a second image appended after the
+   primary's EOI, so aggressive re-encoders (LinkedIn avatars) tend to **strip
+   it**.
 
-Use Assign for maximum glow that matches the reference; use Convert if the
-Assign output looks oversaturated or color-shifted on your display.
+So: PQ is the LinkedIn-friendly path; gain maps are the Apple-friendly path.
+There is no single mechanism that wins everywhere — hence three modes.
 
-The output JPEG embeds an ICC profile whose `cicp` tag carries:
+## Modes (toggle in the UI)
+
+- **Assign** (default) — CICP/PQ, keep the original pixel values, only change
+  the tag. This is how the reference Cosmos avatars are built; the bundled
+  profile's `A2B0` LUT defines how the values map. Strongest glow, survives
+  LinkedIn, best in Chrome. The **Glow** slider is a brightness multiplier
+  (0.5×–1.6×) baked in before export. Pure black stays black.
+
+- **Convert** — CICP/PQ, but remap each pixel sRGB → linear → Rec.2020 → PQ
+  first so values honestly match the profile (no color burn). The **White**
+  slider picks where SDR diffuse white lands in nits (100–600, default 200).
+
+- **Gain map** — UltraHDR: synthesize a gain map from the image's highlights
+  and pack an SDR base + gain map + `hdrgm` XMP + MPF into one file. Renders as
+  HDR in iOS Photos, Chrome 116+, Safari 26+; degrades to clean SDR elsewhere.
+  The **Boost** slider sets the max highlight multiplier (2×–8×). Best for
+  direct sharing (iMessage, AirDrop, Discord-as-file); **may not survive
+  LinkedIn**, which can strip the gain map.
+
+In Assign/Convert the output JPEG embeds an ICC profile whose `cicp` tag carries:
 
 - `ColourPrimaries: 9` (BT.2020 / Rec.2020)
 - `TransferCharacteristics: 16` (PQ / SMPTE ST 2084)
@@ -100,9 +121,11 @@ expected CICP codepoints. Used as a build gate.
 public/rec2020_pq.icc canonical "Rec2020 Gamut with PQ Transfer" profile (9KB)
 src/iccProfile.ts   loads the canonical profile as a static asset
 src/encode.ts       Convert mode: per-pixel sRGB → linear → Rec.2020 → PQ
+src/gainMap.ts      Gain-map mode: synthesize a boost map from SDR highlights
+src/ultraHdr.ts     assemble UltraHDR — MPF + hdrgm XMP + appended gain map
 src/jpegEncode.ts   mozjpeg (WASM) encode — baseline (SOF0) or progressive (SOF2)
 src/jpegInject.ts   strip the encoder's sRGB ICC, splice in our Rec.2020 PQ one
-src/inspect.ts      parse APP2 + ICC back out, read CICP + SOF — the build gate
+src/inspect.ts      read CICP + SOF (PQ) and MPF + hdrgm (gain map) — build gate
 src/main.ts         drag-drop UI, canvas redraw, download pipeline
 src/style.css       single-page styling
 scripts/verify.ts   headless end-to-end pipeline check

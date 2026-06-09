@@ -123,3 +123,105 @@ export function inspectJpeg(jpeg: Uint8Array): IccInspectResult {
     sof,
   };
 }
+
+// --- UltraHDR (gain map) verification ---
+
+export interface UltraHdrInspectResult {
+  hasXmpVersion: boolean; // primary XMP declares hdrgm:Version
+  hasGainMapSemantic: boolean; // GContainer lists a GainMap item
+  mpfImageCount: number; // images declared in the MPF index (expect 2)
+  secondImageOffset: number; // byte offset of the gain-map SOI (0 if not found)
+  secondImageIsJpeg: boolean; // those bytes start with SOI
+  gainMapMax?: number; // parsed hdrgm:GainMapMax
+  isValid: boolean;
+}
+
+function findApp1Xmp(jpeg: Uint8Array): string | null {
+  let i = 2;
+  while (i < jpeg.length - 1) {
+    if (jpeg[i] !== 0xff) break;
+    const m = jpeg[i + 1];
+    if (m === 0xd9 || m === 0xda) break;
+    if (m >= 0xd0 && m <= 0xd7) {
+      i += 2;
+      continue;
+    }
+    if (i + 4 > jpeg.length) break;
+    const len = (jpeg[i + 2] << 8) | jpeg[i + 3];
+    if (m === 0xe1) {
+      const id = String.fromCharCode(...jpeg.subarray(i + 4, i + 4 + 28));
+      if (id.startsWith("http://ns.adobe.com/xap/1.0/")) {
+        const body = jpeg.subarray(i + 4 + 29, i + 2 + len);
+        return String.fromCharCode(...body);
+      }
+    }
+    i += 2 + len;
+  }
+  return null;
+}
+
+function findMpf(jpeg: Uint8Array): { count: number; secondOffset: number } {
+  let i = 2;
+  while (i < jpeg.length - 1) {
+    if (jpeg[i] !== 0xff) break;
+    const m = jpeg[i + 1];
+    if (m === 0xd9 || m === 0xda) break;
+    if (m >= 0xd0 && m <= 0xd7) {
+      i += 2;
+      continue;
+    }
+    if (i + 4 > jpeg.length) break;
+    const len = (jpeg[i + 2] << 8) | jpeg[i + 3];
+    if (m === 0xe2 && String.fromCharCode(jpeg[i + 4], jpeg[i + 5], jpeg[i + 6]) === "MPF") {
+      const base = i + 8; // "MM" byte (after marker+len+"MPF\0")
+      const dv = new DataView(jpeg.buffer, jpeg.byteOffset, jpeg.byteLength);
+      const ifdOff = dv.getUint32(base + 4, false);
+      const count = dv.getUint16(base + ifdOff, false);
+      let entryArrayOff = 0;
+      let numImages = 0;
+      for (let e = 0; e < count; e++) {
+        const tagPos = base + ifdOff + 2 + e * 12;
+        const tag = dv.getUint16(tagPos, false);
+        if (tag === 0xb001) numImages = dv.getUint32(tagPos + 8, false);
+        if (tag === 0xb002) entryArrayOff = dv.getUint32(tagPos + 8, false);
+      }
+      // Second MP entry: 16 bytes each; entry 1 offset field is at +24.
+      let secondOffset = 0;
+      if (entryArrayOff && numImages >= 2) {
+        const rel = dv.getUint32(base + entryArrayOff + 16 + 8, false);
+        secondOffset = base + rel; // absolute in file
+      }
+      return { count: numImages, secondOffset };
+    }
+    i += 2 + len;
+  }
+  return { count: 0, secondOffset: 0 };
+}
+
+export function inspectUltraHdr(jpeg: Uint8Array): UltraHdrInspectResult {
+  const xmp = findApp1Xmp(jpeg) ?? "";
+  const hasXmpVersion = /hdrgm:Version\s*=\s*"1\.0"/.test(xmp);
+  const hasGainMapSemantic = /Item:Semantic\s*=\s*"GainMap"/.test(xmp);
+  const { count, secondOffset } = findMpf(jpeg);
+  const secondImageIsJpeg =
+    secondOffset > 0 &&
+    secondOffset + 1 < jpeg.length &&
+    jpeg[secondOffset] === 0xff &&
+    jpeg[secondOffset + 1] === 0xd8;
+  // GainMapMax appears in the gain map's own XMP (second image). Decode as
+  // latin1 (chunk-safe) rather than spreading a huge array into fromCharCode.
+  let gainMapMax: number | undefined;
+  const allText = new TextDecoder("latin1").decode(jpeg);
+  const mm = allText.match(/hdrgm:GainMapMax\s*=\s*"([\d.]+)"/);
+  if (mm) gainMapMax = parseFloat(mm[1]);
+  return {
+    hasXmpVersion,
+    hasGainMapSemantic,
+    mpfImageCount: count,
+    secondImageOffset: secondOffset,
+    secondImageIsJpeg,
+    gainMapMax,
+    isValid:
+      hasXmpVersion && hasGainMapSemantic && count === 2 && secondImageIsJpeg,
+  };
+}

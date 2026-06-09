@@ -42,9 +42,10 @@
             <label for="mode">Mode</label>
             <select id="mode">
               <option value="assign" selected>
-                Assign — keep pixels, tag only
+                Assign — keep pixels, PQ tag (Chrome, LinkedIn)
               </option>
               <option value="convert">Convert — sRGB → Rec.2020 PQ</option>
+              <option value="gainmap">Gain map — UltraHDR (iOS, Safari)</option>
             </select>
             <output id="modeOut">assign</output>
           </div>
@@ -108,12 +109,13 @@
 
       <footer class="foot">
         <p>
-          Files are processed locally — nothing is uploaded. The JPEG is tagged
-          with a Rec.2020 + PQ profile so HDR-aware OSes read bright pixels as
-          absolute luminance and they glow. <strong>Assign</strong> keeps the
-          original pixel values (max glow, can shift color);
-          <strong>Convert</strong> remaps sRGB → Rec.2020 PQ first (clean color,
-          gentler glow).
+          Files are processed locally — nothing is uploaded. Three modes:
+          <strong>Assign</strong> keeps pixel values and tags Rec.2020 + PQ —
+          max glow, survives LinkedIn's re-encode, best in Chrome.
+          <strong>Convert</strong> remaps sRGB → Rec.2020 PQ first for cleaner
+          color. <strong>Gain map</strong> packs an SDR base + a boost map
+          (UltraHDR) — the format iOS Photos &amp; Safari render, but it can be
+          stripped by aggressive re-encoders like LinkedIn's avatar pipeline.
         </p>
       </footer>
     </main>
