@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <title>Glow — turn any photo into HDR</title>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <h1>Glow</h1>
+        <p class="tagline">
+          Drop an image. Get a JPEG that glows on iOS &amp; XDR displays.
+        </p>
+      </header>
+
+      <section class="drop" id="drop">
+        <div class="drop-inner" id="dropInner">
+          <div class="drop-icon" aria-hidden="true">+</div>
+          <p class="drop-title">Drop an image here</p>
+          <p class="drop-sub">or</p>
+          <button type="button" id="chooseBtn" class="btn">Choose file</button>
+          <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp" hidden />
+          <p class="drop-note">PNG, JPEG, WebP — everything stays in your browser.</p>
+        </div>
+      </section>
+
+      <section class="workspace" id="workspace" hidden>
+        <div class="preview-wrap">
+          <canvas id="canvas"></canvas>
+          <p class="preview-caption">
+            Preview is SDR — actual glow shows on an HDR display (iPhone, XDR
+            Mac). 100 nits ≈ SDR-equivalent, anything higher is HDR headroom.
+          </p>
+        </div>
+
+        <div class="controls">
+          <div class="slider-row">
+            <label for="glow">Glow</label>
+            <input
+              type="range"
+              id="glow"
+              min="1.0"
+              max="6.0"
+              step="0.1"
+              value="2.0"
+            />
+            <output id="glowOut">200 nits</output>
+          </div>
+
+          <div class="select-row">
+            <label for="size">Output size</label>
+            <select id="size">
+              <option value="0">Original (max 1400px)</option>
+              <option value="1024">1024px (long side)</option>
+              <option value="800">800px (long side)</option>
+              <option value="400" selected>400px — LinkedIn avatar</option>
+              <option value="200">200px</option>
+            </select>
+            <output id="sizeOut">—</output>
+          </div>
+
+          <div class="select-row">
+            <label for="format">JPEG format</label>
+            <select id="format">
+              <option value="progressive" selected>
+                Progressive (SOF2 — survives LinkedIn)
+              </option>
+              <option value="baseline">Baseline (SOF0 — canvas default)</option>
+            </select>
+            <output id="formatOut">SOF2</output>
+          </div>
+
+          <div class="checkbox-row">
+            <label>
+              <input type="checkbox" id="square" />
+              Crop to square (center)
+            </label>
+          </div>
+
+          <div class="actions">
+            <button type="button" id="downloadBtn" class="btn primary">
+              Download glowing JPEG
+            </button>
+            <button type="button" id="resetBtn" class="btn ghost">Reset</button>
+          </div>
+
+          <details class="inspect">
+            <summary>Verify CICP tags</summary>
+            <pre id="inspectOut">Export to verify.</pre>
+          </details>
+        </div>
+      </section>
+
+      <footer class="foot">
+        <p>
+          Files are processed locally — nothing is uploaded. Pixels are
+          re-encoded sRGB → linear → Rec.2020 → PQ, with SDR "white" landing at
+          the chosen nits. The JPEG is tagged Rec.2020 + PQ, so HDR-aware OSes
+          read bright pixels as absolute luminance above SDR.
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>
