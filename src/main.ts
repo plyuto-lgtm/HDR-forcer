@@ -101,16 +101,18 @@ function redraw(): void {
   // In assign mode the slider scales pixel values (brightness) and the preview
   // reflects that. In convert mode the slider is a target-nits value that only
   // affects the encoded export, so we show the image unscaled.
-  ctx.filter = mode() === "assign" ? `brightness(${glow.value})` : "none";
+  ctx.filter =
+    mode() === "assign" || mode() === "combined" ? `brightness(${glow.value})` : "none";
   ctx.drawImage(current.img, p.sx, p.sy, p.sw, p.sh, 0, 0, p.dw, p.dh);
   updateSizeReadout();
 }
 
-type Mode = "assign" | "convert" | "gainmap";
+type Mode = "assign" | "convert" | "gainmap" | "combined";
 
 function mode(): Mode {
   if (modeSel.value === "convert") return "convert";
   if (modeSel.value === "gainmap") return "gainmap";
+  if (modeSel.value === "combined") return "combined";
   return "assign";
 }
 
@@ -131,7 +133,8 @@ function sliderBoost(): number {
 // Swap the Glow slider's range/label to match the active mode, then redraw.
 function applyMode(): void {
   modeOut.textContent = mode();
-  if (mode() === "assign") {
+  if (mode() === "assign" || mode() === "combined") {
+    // Combined uses an Assign-style PQ base, so it shares the brightness knob.
     glowLabel.textContent = "Glow";
     glow.min = "0.5";
     glow.max = "1.6";
@@ -155,7 +158,7 @@ function applyMode(): void {
 }
 
 function glowReadout(): string {
-  if (mode() === "assign") return `${sliderBrightness().toFixed(2)}×`;
+  if (mode() === "assign" || mode() === "combined") return `${sliderBrightness().toFixed(2)}×`;
   if (mode() === "convert") return `${sliderToNits()} nits`;
   return `${sliderBoost().toFixed(1)}× boost`;
 }
@@ -198,10 +201,9 @@ async function exportGlow(): Promise<void> {
     const offCtx = off.getContext("2d", { willReadFrequently: true });
     if (!offCtx) throw new Error("No 2D context for offscreen canvas");
 
-    if (mode() === "assign") {
-      // ASSIGN: keep the sRGB-encoded pixel values (brightness baked in) and
-      // just tag the Rec.2020 PQ profile. HDR-aware OSes reinterpret those
-      // values on the PQ curve. Matches how the reference avatars are built.
+    if (mode() === "assign" || mode() === "combined") {
+      // ASSIGN / COMBINED: keep the sRGB-encoded pixel values (brightness baked
+      // in). Assign just tags Rec.2020 PQ; combined also appends a gain map.
       offCtx.filter = `brightness(${sliderBrightness()})`;
       offCtx.drawImage(img, p.sx, p.sy, p.sw, p.sh, 0, 0, p.dw, p.dh);
     } else {
@@ -210,6 +212,31 @@ async function exportGlow(): Promise<void> {
     }
     const imageData = offCtx.getImageData(0, 0, p.dw, p.dh);
     const flavor = formatSel.value as JpegFlavor;
+
+    if (mode() === "combined") {
+      // COMBINED (experimental): the base is the Assign PQ image (survives
+      // LinkedIn, glows in Chrome via CICP). We ALSO append a gain map flagged
+      // BaseRenditionIsHDR=True — the gain map describes the SDR fallback of an
+      // HDR base, and its presence may flip iOS into honoring the PQ base.
+      const { gain, meta } = buildGainMap(imageData, {
+        boostMax: 4,
+        loThreshold: 0.5,
+        hiThreshold: 1.0,
+        baseIsHdr: true,
+      });
+      const baseJpeg = await encodeJpeg(imageData, 95, flavor);
+      const profile = await loadRec2020PQProfile();
+      const baseTagged = injectIccProfile(baseJpeg, profile);
+      const gainJpeg = await encodeJpeg(gain, 90, flavor);
+      const ultra = assembleUltraHdr(baseTagged, gainJpeg, meta);
+      const pq = inspectJpeg(ultra);
+      inspectOut.textContent =
+        formatGainMapInspect(ultra, meta) +
+        `\nPQ base tag: ${pq.isHdrTagged ? "YES ✓ (primaries=9, transfer=16)" : "NO ✗"}` +
+        `\nBaseRenditionIsHDR: True`;
+      triggerDownload(ultra, `${current.name}_combined.jpg`);
+      return;
+    }
 
     if (mode() === "gainmap") {
       // GAIN MAP (UltraHDR): the SDR image is the base; we synthesize a

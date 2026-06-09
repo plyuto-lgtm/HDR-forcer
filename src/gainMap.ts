@@ -25,6 +25,9 @@ export interface GainMapMeta {
   offsetHdr: number; // 1/64
   hdrCapacityMin: number; // 0
   hdrCapacityMax: number; // log2(boostMax)
+  // True when the PRIMARY image is the HDR rendition and the gain map derives
+  // the SDR fallback (used by the "combined" PQ-base + gain-map experiment).
+  baseRenditionIsHdr: boolean;
 }
 
 export interface GainMapResult {
@@ -47,6 +50,7 @@ export interface GainMapOptions {
   boostMax: number; // e.g. 4 → highlights up to 4x on a headroom-capable display
   loThreshold: number; // luminance where boost starts ramping (0..1), e.g. 0.5
   hiThreshold: number; // luminance where boost reaches max (0..1), e.g. 1.0
+  baseIsHdr?: boolean; // tag the file as HDR-base (combined PQ + gain map)
 }
 
 export function buildGainMap(base: ImageData, opts: GainMapOptions): GainMapResult {
@@ -82,6 +86,7 @@ export function buildGainMap(base: ImageData, opts: GainMapOptions): GainMapResu
       offsetHdr: 1 / 64,
       hdrCapacityMin: 0,
       hdrCapacityMax: log2Max,
+      baseRenditionIsHdr: opts.baseIsHdr ?? false,
     },
   };
 }

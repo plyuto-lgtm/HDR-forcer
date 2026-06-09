@@ -53,6 +53,15 @@ There is no single mechanism that wins everywhere — hence three modes.
   direct sharing (iMessage, AirDrop, Discord-as-file); **may not survive
   LinkedIn**, which can strip the gain map.
 
+- **Combined** (experimental) — one file carrying BOTH signals: an Assign-style
+  **PQ base** (tagged Rec.2020 + PQ, so it survives LinkedIn and glows in
+  Chrome via CICP) **plus** an appended gain map flagged
+  `BaseRenditionIsHDR=True` (so iOS/Safari have a gain map to latch onto). The
+  base pixels can only honestly be one thing, so this is a deliberate gamble:
+  each surface picks the mechanism it understands, and the gain map's *presence*
+  may be what flips iOS into honoring the PQ base as HDR. **Test on real
+  devices** — whether iOS lights up is decoder-dependent and unverified.
+
 In Assign/Convert the output JPEG embeds an ICC profile whose `cicp` tag carries:
 
 - `ColourPrimaries: 9` (BT.2020 / Rec.2020)

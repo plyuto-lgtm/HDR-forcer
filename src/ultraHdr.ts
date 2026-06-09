@@ -142,7 +142,7 @@ function gainMapXmp(m: GainMapMeta): string {
     `<rdf:Description rdf:about="" ` +
     `xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/" ` +
     `hdrgm:Version="1.0" ` +
-    `hdrgm:BaseRenditionIsHDR="False" ` +
+    `hdrgm:BaseRenditionIsHDR="${m.baseRenditionIsHdr ? "True" : "False"}" ` +
     `hdrgm:GainMapMin="${num(m.gainMapMin)}" ` +
     `hdrgm:GainMapMax="${num(m.gainMapMax)}" ` +
     `hdrgm:Gamma="${num(m.gamma)}" ` +

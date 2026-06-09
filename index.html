@@ -46,6 +46,7 @@
               </option>
               <option value="convert">Convert — sRGB → Rec.2020 PQ</option>
               <option value="gainmap">Gain map — UltraHDR (iOS, Safari)</option>
+              <option value="combined">Combined — PQ + gain map (experimental)</option>
             </select>
             <output id="modeOut">assign</output>
           </div>
@@ -116,6 +117,9 @@
           color. <strong>Gain map</strong> packs an SDR base + a boost map
           (UltraHDR) — the format iOS Photos &amp; Safari render, but it can be
           stripped by aggressive re-encoders like LinkedIn's avatar pipeline.
+          <strong>Combined</strong> (experimental) puts a PQ base
+          <em>and</em> a gain map in one file — aiming to glow everywhere at
+          once. Test it on your devices.
         </p>
       </footer>
     </main>
