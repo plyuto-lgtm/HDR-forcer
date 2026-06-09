@@ -14,6 +14,7 @@
     "vite": "^8.0.12"
   },
   "dependencies": {
-    "@jsquash/jpeg": "^1.6.0"
+    "@jsquash/jpeg": "^1.6.0",
+    "heic2any": "^0.0.4"
   }
 }

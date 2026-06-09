@@ -155,10 +155,19 @@ transforms colors and preserve it. The same profile is what's inside
 LinkedIn-hosted "glow JPEGs" today; we extracted it from one and use it
 verbatim.
 
+## Input formats
+
+PNG, JPEG, WebP load natively. **HEIC/HEIF** (iPhone photos) are decoded to a
+JPEG blob first via `heic2any` (libheif WASM), which is **lazy-loaded** — the
+~1 MB decoder only ships when someone actually drops a HEIC. Everything then
+flows through the same canvas → encode → tag pipeline. Detection falls back to
+the file extension because browsers often report an empty MIME type for HEIC.
+
 ## Stack
 
 - Vite + vanilla TypeScript, single page, static output.
-- No image libraries — canvas + hand-rolled byte manipulation on `Uint8Array`.
+- Minimal deps: mozjpeg (encode) and heic2any (HEIC decode, lazy) — everything
+  else is canvas + hand-rolled byte manipulation on `Uint8Array`.
 - Deploys to Vercel as static files (`npm run build` → `dist/`).
 
 ```bash

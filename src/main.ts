@@ -163,13 +163,26 @@ function glowReadout(): string {
   return `${sliderBoost().toFixed(1)}× boost`;
 }
 
-function loadFile(file: File): void {
-  if (!file.type.startsWith("image/")) return;
-  const url = URL.createObjectURL(file);
+function isHeic(file: File): boolean {
+  const t = file.type.toLowerCase();
+  const n = file.name.toLowerCase();
+  // Browsers often report an empty type for HEIC, so fall back to extension.
+  return (
+    t === "image/heic" ||
+    t === "image/heif" ||
+    t === "image/heic-sequence" ||
+    t === "image/heif-sequence" ||
+    n.endsWith(".heic") ||
+    n.endsWith(".heif")
+  );
+}
+
+function loadImageFromBlob(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob);
   const img = new Image();
   img.onload = () => {
     URL.revokeObjectURL(url);
-    current = { img, name: baseName(file.name) };
+    current = { img, name: baseName(name) };
     workspace.hidden = false;
     drop.classList.add("compact");
     inspectOut.textContent = "Export to verify.";
@@ -180,6 +193,26 @@ function loadFile(file: File): void {
     inspectOut.textContent = "Failed to decode that image.";
   };
   img.src = url;
+}
+
+async function loadFile(file: File): Promise<void> {
+  // Chrome/Firefox can't decode HEIC natively — decode it to a JPEG blob first
+  // (lazy-loaded so the ~1MB decoder only ships when someone drops a HEIC).
+  if (isHeic(file)) {
+    inspectOut.textContent = "Decoding HEIC…";
+    try {
+      const heic2any = (await import("heic2any")).default;
+      const out = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.95 });
+      const jpeg = Array.isArray(out) ? out[0] : out;
+      loadImageFromBlob(jpeg, file.name);
+    } catch (err) {
+      inspectOut.textContent =
+        "HEIC decode failed: " + (err instanceof Error ? err.message : String(err));
+    }
+    return;
+  }
+  if (!file.type.startsWith("image/")) return;
+  loadImageFromBlob(file, file.name);
 }
 
 function baseName(filename: string): string {
@@ -340,7 +373,7 @@ void loadRec2020PQProfile();
 chooseBtn.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", () => {
   const f = fileInput.files?.[0];
-  if (f) loadFile(f);
+  if (f) void loadFile(f);
 });
 
 glow.addEventListener("input", () => {
@@ -392,5 +425,5 @@ function setDragState(active: boolean): void {
 );
 drop.addEventListener("drop", (e) => {
   const f = (e as DragEvent).dataTransfer?.files?.[0];
-  if (f) loadFile(f);
+  if (f) void loadFile(f);
 });
